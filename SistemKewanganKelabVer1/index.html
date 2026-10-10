@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistem Penyata Kewangan Persatuan (Firebase Integrated)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- html2pdf.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body :style="{ backgroundColor: settings.bgColor || '#f1f5f9' }" class="font-sans text-slate-800 antialiased min-h-screen" x-data="financeApp()" x-init="initApp()">
+
+  <!-- LOADING OVERLAY -->
+  <div x-show="loading" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center text-white">
+    <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+    <p class="text-sm font-medium" x-text="loadingMessage">Memuatkan data dari Firebase...</p>
+  </div>
+
+  <!-- 1. LAMAN UTAMA / LANDING PAGE -->
+  <div x-show="!currentUser && currentTab === 'landing'" class="min-h-screen flex flex-col justify-between bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white">
+    <header class="p-6 flex justify-between items-center max-w-6xl mx-auto w-full">
+      <div class="flex items-center space-x-3">
+        <template x-if="settings.logo">
+          <img :src="settings.logo" class="w-12 h-12 object-contain rounded-full bg-white p-1" alt="Logo">
+        </template>
+        <template x-if="!settings.logo">
+          <div :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="w-12 h-12 rounded-full flex items-center justify-center font-bold text-xl text-white">
+            <i data-lucide="building-2"></i>
+          </div>
+        </template>
+        <span class="font-bold text-xl tracking-wide" x-text="settings.clubName"></span>
+      </div>
+      <button @click="currentTab = 'login'" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="text-white px-5 py-2 rounded-lg font-medium transition shadow-lg hover:opacity-90">
+        Log Masuk
+      </button>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-6 text-center my-auto py-12">
+      <div class="inline-block px-4 py-1.5 bg-indigo-500/20 text-indigo-300 rounded-full text-sm font-semibold mb-6 border border-indigo-500/30">
+        UNTUK KEGUNAAN KELAB / PERSATUAN SAHAJA
+      </div>
+      <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight leading-tight mb-6" x-text="settings.clubName"></h1>
+      <p class="text-lg md:text-xl text-slate-300 max-w-2xl mx-auto mb-10">
+        Sistem Pengurusan & Penyata Kewangan Rasmi. Memudahkan pemantauan wang masuk, wang keluar, resit digital, dan laporan grafik secara telus.
+      </p>
+      <div class="flex flex-col sm:flex-row justify-center gap-4">
+        <button @click="currentTab = 'login'" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="text-white px-8 py-3.5 rounded-xl font-bold text-lg transition shadow-xl hover:opacity-90">
+          Log Masuk Akaun
+        </button>
+        <button @click="currentTab = 'register'" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-8 py-3.5 rounded-xl font-bold text-lg transition">
+          Daftar Ahli Baharu
+        </button>
+      </div>
+    </main>
+
+    <footer class="p-6 text-center text-sm text-slate-500 border-t border-slate-800">
+      &copy; <span x-text="new Date().getFullYear()"></span> <span x-text="settings.clubName"></span>. Hak Cipta Terpelihara.
+    </footer>
+  </div>
+
+  <!-- LAMAN LOG MASUK / DAFTAR -->
+  <div x-show="!currentUser && (currentTab === 'login' || currentTab === 'register')" class="min-h-screen flex items-center justify-center p-4 bg-slate-900">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full relative">
+      <button @click="currentTab = 'landing'" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div class="text-center mb-6">
+        <template x-if="settings.logo">
+          <img :src="settings.logo" class="w-16 h-16 object-contain mx-auto mb-3" alt="Logo">
+        </template>
+        <h2 class="text-2xl font-bold text-slate-800" x-text="currentTab === 'login' ? 'Log Masuk' : 'Pendaftaran Ahli'"></h2>
+        <p class="text-xs text-slate-500 mt-1" x-text="settings.clubName"></p>
+      </div>
+
+      <!-- Mesej Notifikasi -->
+      <div x-show="authMessage.text" :class="authMessage.type === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'" class="p-3 rounded-lg border text-sm mb-4" x-text="authMessage.text"></div>
+
+      <!-- Form Log Masuk -->
+      <template x-if="currentTab === 'login'">
+        <form @submit.prevent="handleLogin()" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">E-mel</label>
+            <input type="email" x-model="loginForm.email" required class="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Kata Laluan</label>
+            <input type="password" x-model="loginForm.password" required class="w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <button type="submit" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="w-full text-white py-3 rounded-lg font-semibold transition hover:opacity-90">Log Masuk</button>
+          <p class="text-center text-sm text-slate-600 mt-4">
+            Belum ada akaun? <a href="#" @click.prevent="currentTab = 'register'; authMessage.text = ''" :style="{ color: settings.themeColor || '#4f46e5' }" class="font-semibold hover:underline">Daftar di sini</a>
+          </p>
+        </form>
+      </template>
+
+      <!-- Form Pendaftaran -->
+      <template x-if="currentTab === 'register'">
+        <form @submit.prevent="handleRegister()" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Nama Penuh</label>
+            <input type="text" x-model="regForm.name" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">E-mel</label>
+            <input type="email" x-model="regForm.email" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Jawatan</label>
+            <select x-model="regForm.role" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+              <option value="Ahli Biasa">Ahli Biasa</option>
+              <option value="Pengerusi">Pengerusi / Presiden</option>
+              <option value="Naib Pengerusi">Naib Pengerusi / Naib Presiden</option>
+              <option value="Setiausaha">Setiausaha</option>
+              <option value="Naib Setiausaha">Naib Setiausaha</option>
+              <option value="Bendahari">Bendahari</option>
+              <option value="Naib Bendahari">Naib Bendahari</option>
+              <option value="AJK">Ahli Jawatankuasa (AJK)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Kata Laluan</label>
+            <input type="password" x-model="regForm.password" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+          <button type="submit" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="w-full text-white py-3 rounded-lg font-semibold transition hover:opacity-90">Hantar Pendaftaran</button>
+          <p class="text-xs text-amber-600 mt-2 text-center">*Pendaftaran memerlukan kelulusan Admin sebelum boleh log masuk.</p>
+          <p class="text-center text-sm text-slate-600 mt-2">
+            Sudah mendaftar? <a href="#" @click.prevent="currentTab = 'login'; authMessage.text = ''" :style="{ color: settings.themeColor || '#4f46e5' }" class="font-semibold hover:underline">Log Masuk</a>
+          </p>
+        </form>
+      </template>
+    </div>
+  </div>
+
+  <!-- DASHBOARD UTAMA (SETELAH LOG MASUK) -->
+  <div x-show="currentUser" class="min-h-screen flex flex-col md:flex-row">
+    
+    <!-- SIDEBAR / NAVIGATION -->
+    <aside class="w-full md:w-64 bg-slate-900 text-slate-300 flex-shrink-0 flex flex-col justify-between">
+      <div>
+        <!-- App Header -->
+        <div class="p-5 border-b border-slate-800 flex items-center space-x-3">
+          <template x-if="settings.logo">
+            <img :src="settings.logo" class="w-10 h-10 object-contain rounded-full bg-white p-0.5" alt="Logo">
+          </template>
+          <div>
+            <h1 class="font-bold text-white leading-tight" x-text="settings.clubName"></h1>
+            <span class="text-[10px] font-semibold uppercase tracking-wider" :style="{ color: settings.themeColor || '#818cf8' }">Kegunaan Kelab</span>
+          </div>
+        </div>
+
+        <!-- Profil Ringkas -->
+        <div class="p-4 bg-slate-800/50 mx-3 my-4 rounded-xl border border-slate-700/50 flex items-center space-x-3">
+          <template x-if="currentUser?.avatar">
+            <img :src="currentUser?.avatar" :style="{ borderColor: settings.themeColor || '#6366f1' }" class="w-10 h-10 rounded-full object-cover border-2 flex-shrink-0" alt="Avatar">
+          </template>
+          <template x-if="!currentUser?.avatar">
+            <div :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="w-10 h-10 rounded-full text-white font-bold flex items-center justify-center text-lg uppercase flex-shrink-0" x-text="(currentUser?.nickname || currentUser?.name)?.charAt(0)"></div>
+          </template>
+          <div class="overflow-hidden">
+            <p class="text-sm font-semibold text-white truncate" x-text="currentUser?.nickname ? currentUser?.nickname : currentUser?.name"></p>
+            <div class="flex items-center space-x-1">
+              <span class="text-xs px-2 py-0.5 rounded font-medium"
+                    :class="currentUser?.isAdmin ? 'bg-purple-900/60 text-purple-300' : 'bg-slate-700 text-slate-300'"
+                    x-text="currentUser?.isAdmin ? 'ADMIN' : currentUser?.role"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Menu Navigation -->
+        <nav class="px-3 space-y-1">
+          <button @click="switchTab('dashboard')" 
+                  :style="currentTab === 'dashboard' ? { backgroundColor: settings.themeColor || '#4f46e5', color: '#ffffff' } : {}"
+                  :class="currentTab === 'dashboard' ? '' : 'hover:bg-slate-800 text-slate-400 hover:text-white'" 
+                  class="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition">
+            <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+            <span>Dashboard & Laporan</span>
+          </button>
+          
+          <button @click="switchTab('records')" 
+                  :style="currentTab === 'records' ? { backgroundColor: settings.themeColor || '#4f46e5', color: '#ffffff' } : {}"
+                  :class="currentTab === 'records' ? '' : 'hover:bg-slate-800 text-slate-400 hover:text-white'" 
+                  class="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition">
+            <i data-lucide="receipt" class="w-5 h-5"></i>
+            <span>Rekod Kewangan</span>
+          </button>
+
+          <button @click="switchTab('profile')" 
+                  :style="currentTab === 'profile' ? { backgroundColor: settings.themeColor || '#4f46e5', color: '#ffffff' } : {}"
+                  :class="currentTab === 'profile' ? '' : 'hover:bg-slate-800 text-slate-400 hover:text-white'" 
+                  class="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition">
+            <i data-lucide="user-cog" class="w-5 h-5"></i>
+            <span>Profil Saya</span>
+          </button>
+
+          <template x-if="currentUser?.isAdmin">
+            <button @click="switchTab('admin')" 
+                    :style="currentTab === 'admin' ? { backgroundColor: settings.themeColor || '#4f46e5', color: '#ffffff' } : {}"
+                    :class="currentTab === 'admin' ? '' : 'hover:bg-slate-800 text-slate-400 hover:text-white'" 
+                    class="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition">
+              <i data-lucide="shield-check" class="w-5 h-5"></i>
+              <span>Kawalan Admin</span>
+            </button>
+          </template>
+        </nav>
+      </div>
+
+      <!-- Log Keluar -->
+      <div class="p-4 border-t border-slate-800">
+        <button @click="logout()" class="w-full flex items-center justify-center space-x-2 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white py-2.5 rounded-lg text-sm font-semibold transition">
+          <i data-lucide="log-out" class="w-4 h-4"></i>
+          <span>Log Keluar</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+
+      <!-- TAB 1: DASHBOARD & GRAF/CARTA KEWANGAN -->
+      <div x-show="currentTab === 'dashboard'" class="space-y-6">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">Dashboard Kewangan</h2>
+          <p class="text-slate-500 text-sm">Ringkasan aliran wang masuk, wang keluar dan baki semasa secara Firebase Realtime.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Jumlah Baki Semasa</span>
+              <div class="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><i data-lucide="wallet"></i></div>
+            </div>
+            <p class="text-3xl font-extrabold text-slate-800" x-text="formatCurrency(totalBalance)"></p>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Jumlah Wang Masuk</span>
+              <div class="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><i data-lucide="arrow-down-left"></i></div>
+            </div>
+            <p class="text-3xl font-extrabold text-emerald-600" x-text="formatCurrency(totalIncome)"></p>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Jumlah Wang Keluar</span>
+              <div class="p-2 bg-rose-50 text-rose-600 rounded-lg"><i data-lucide="arrow-up-right"></i></div>
+            </div>
+            <p class="text-3xl font-extrabold text-rose-600" x-text="formatCurrency(totalExpense)"></p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+            <h3 class="font-bold text-slate-800 mb-4 flex items-center space-x-2">
+              <i data-lucide="trending-up" class="w-5 h-5" :style="{ color: settings.themeColor || '#4f46e5' }"></i>
+              <span>Aliran Kewangan Bulan ke Bulan (<span x-text="new Date().getFullYear()"></span>)</span>
+            </h3>
+            <div class="relative h-64">
+              <canvas id="monthlyChart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+            <h3 class="font-bold text-slate-800 mb-4 flex items-center space-x-2">
+              <i data-lucide="bar-chart-3" class="w-5 h-5" :style="{ color: settings.themeColor || '#4f46e5' }"></i>
+              <span>Ringkasan Tahun ke Tahun</span>
+            </h3>
+            <div class="relative h-64">
+              <canvas id="yearlyChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: REKOD KEWANGAN -->
+      <div x-show="currentTab === 'records'" class="space-y-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-2xl font-bold text-slate-800">Rekod Transaksi Kewangan</h2>
+            <p class="text-slate-500 text-sm">Senarai transaksi disimpan secara automatik dalam Firebase Database.</p>
+          </div>
+          
+          <div class="flex items-center space-x-3">
+            <button @click="downloadPDF()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-semibold flex items-center space-x-2 transition shadow-sm">
+              <i data-lucide="download" class="w-5 h-5"></i>
+              <span>Muat Turun PDF</span>
+            </button>
+
+            <template x-if="canAddRecord">
+              <button @click="showAddModal = true" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="text-white px-4 py-2.5 rounded-xl font-semibold flex items-center space-x-2 transition shadow-sm hover:opacity-90">
+                <i data-lucide="plus-circle" class="w-5 h-5"></i>
+                <span>Tambah Rekod Kewangan</span>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- Penyata Table -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead class="bg-slate-50 text-slate-500 font-semibold border-b">
+                <tr>
+                  <th class="p-4">Tarikh & Masa</th>
+                  <th class="p-4">Jenis</th>
+                  <th class="p-4">Keterangan / Catatan</th>
+                  <th class="p-4">Jumlah (RM)</th>
+                  <th class="p-4">Dimuat Naik Oleh</th>
+                  <th class="p-4">Resit</th>
+                  <template x-if="currentUser?.isAdmin">
+                    <th class="p-4 text-center">Tindakan Admin</th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="item in records" :key="item.id">
+                  <tr class="hover:bg-slate-50/80">
+                    <td class="p-4 whitespace-nowrap text-slate-600" x-text="item.dateTime"></td>
+                    <td class="p-4 whitespace-nowrap">
+                      <span class="px-2.5 py-1 rounded-full text-xs font-bold"
+                            :class="item.type === 'Masuk' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'"
+                            x-text="item.type"></span>
+                    </td>
+                    <td class="p-4 text-slate-800 font-medium" x-text="item.description"></td>
+                    <td class="p-4 whitespace-nowrap font-bold" :class="item.type === 'Masuk' ? 'text-emerald-600' : 'text-rose-600'" x-text="(item.type === 'Masuk' ? '+' : '-') + ' ' + formatCurrency(item.amount)"></td>
+                    <td class="p-4 whitespace-nowrap text-slate-600">
+                      <span x-text="item.uploadedBy"></span>
+                      <span class="text-[10px] block text-slate-400" x-text="'(' + item.uploaderRole + ')'"></span>
+                    </td>
+                    <td class="p-4 whitespace-nowrap">
+                      <template x-if="item.receipt">
+                        <button @click="viewReceipt(item.receipt)" :style="{ color: settings.themeColor || '#4f46e5' }" class="flex items-center space-x-1 font-semibold text-xs hover:underline">
+                          <i data-lucide="file-text" class="w-4 h-4"></i>
+                          <span>Lihat Resit</span>
+                        </button>
+                      </template>
+                      <template x-if="!item.receipt">
+                        <span class="text-xs text-slate-400 italic">Tiada Resit</span>
+                      </template>
+                    </td>
+                    <template x-if="currentUser?.isAdmin">
+                      <td class="p-4 whitespace-nowrap text-center">
+                        <button @click="deleteRecord(item.id)" class="text-rose-600 hover:text-rose-800 p-1.5 rounded-lg hover:bg-rose-50" title="Padam Rekod">
+                          <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+                <template x-if="records.length === 0">
+                  <tr>
+                    <td colspan="7" class="p-8 text-center text-slate-400">Tiada rekod kewangan ditemui.</td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPLATE KHUSUS CETAKAN PDF -->
+      <div id="pdfPrintArea" class="hidden p-8 bg-white text-slate-800 font-sans">
+        <div class="border-b pb-4 mb-6 flex justify-between items-center">
+          <div>
+            <h1 class="text-2xl font-bold uppercase tracking-wide" x-text="settings.clubName"></h1>
+            <p class="text-sm text-slate-500">PENYATA RASMI KEWANAGAN & TRANSAKSI</p>
+          </div>
+          <div class="text-right text-xs text-slate-400">
+            <p x-text="'Tarikh Dijana: ' + new Date().toLocaleDateString('ms-MY')"></p>
+            <p x-text="'Dijana Oleh: ' + (currentUser?.nickname || currentUser?.name)"></p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4 mb-6 p-4 bg-slate-50 rounded-lg border text-center">
+          <div>
+            <p class="text-xs text-slate-500">Jumlah Wang Masuk</p>
+            <p class="text-lg font-bold text-emerald-600" x-text="formatCurrency(totalIncome)"></p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500">Jumlah Wang Keluar</p>
+            <p class="text-lg font-bold text-rose-600" x-text="formatCurrency(totalExpense)"></p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500">Baki Semasa</p>
+            <p class="text-lg font-bold text-slate-800" x-text="formatCurrency(totalBalance)"></p>
+          </div>
+        </div>
+
+        <table class="w-full text-left border-collapse text-xs mb-8">
+          <thead>
+            <tr class="bg-slate-800 text-white">
+              <th class="p-2 border">Tarikh & Masa</th>
+              <th class="p-2 border">Jenis</th>
+              <th class="p-2 border">Keterangan</th>
+              <th class="p-2 border">Jumlah (RM)</th>
+              <th class="p-2 border">Dimuat Naik Oleh</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="item in records" :key="item.id">
+              <tr class="border-b">
+                <td class="p-2 border" x-text="item.dateTime"></td>
+                <td class="p-2 border font-bold" :class="item.type === 'Masuk' ? 'text-emerald-600' : 'text-rose-600'" x-text="item.type"></td>
+                <td class="p-2 border" x-text="item.description"></td>
+                <td class="p-2 border font-bold" x-text="(item.type === 'Masuk' ? '+' : '-') + ' ' + formatCurrency(item.amount)"></td>
+                <td class="p-2 border" x-text="item.uploadedBy + ' (' + item.uploaderRole + ')'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <div class="text-center text-[10px] text-slate-400 border-t pt-4">
+          Dokumen ini dijana secara automatik menerusi Sistem Penyata Kewangan Persatuan.
+        </div>
+      </div>
+
+      <!-- TAB 3: PROFIL SAYA -->
+      <div x-show="currentTab === 'profile'" class="max-w-xl space-y-6">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">Profil Saya</h2>
+          <p class="text-slate-500 text-sm">Kemaskini gambar profil, nama panggilan, e-mel dan kata laluan anda.</p>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 space-y-5">
+          <div x-show="profileMsg.text" :class="profileMsg.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'" class="p-3 rounded-lg text-sm" x-text="profileMsg.text"></div>
+
+          <div class="flex items-center space-x-4">
+            <div class="relative">
+              <template x-if="profileForm.avatar">
+                <img :src="profileForm.avatar" :style="{ borderColor: settings.themeColor || '#4f46e5' }" class="w-20 h-20 rounded-full object-cover border-2 shadow-sm" alt="Gambar Profil">
+              </template>
+              <template x-if="!profileForm.avatar">
+                <div :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="w-20 h-20 rounded-full text-white font-bold flex items-center justify-center text-3xl uppercase shadow-sm" x-text="(profileForm.nickname || currentUser?.name)?.charAt(0)"></div>
+              </template>
+            </div>
+            <div class="flex-1">
+              <label class="block text-sm font-medium text-slate-700 mb-1">Gambar Profil</label>
+              <input type="file" @change="uploadAvatar($event)" accept="image/*" class="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+              <p class="text-[11px] text-slate-400 mt-1">Format imej disokong: JPG, PNG, WEBP.</p>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Nama Penuh</label>
+            <input type="text" x-model="currentUser.name" disabled class="w-full px-4 py-2 bg-slate-100 border rounded-lg text-slate-500 cursor-not-allowed">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Nama Panggilan / Nickname</label>
+            <input type="text" x-model="profileForm.nickname" placeholder="Masukkan nama panggilan anda" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Jawatan</label>
+            <input type="text" x-model="currentUser.role" disabled class="w-full px-4 py-2 bg-slate-100 border rounded-lg text-slate-500 cursor-not-allowed">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Alamat E-mel</label>
+            <input type="email" x-model="profileForm.email" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+
+          <hr class="my-4">
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Kata Laluan Baharu (Tinggalkan kosong jika tidak ubah)</label>
+            <input type="password" x-model="profileForm.newPassword" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="******">
+          </div>
+
+          <button @click="updateProfile()" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="w-full text-white font-semibold py-2.5 rounded-lg transition shadow-sm hover:opacity-90">
+            Simpan Perubahan
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 4: PANEL ADMIN -->
+      <div x-show="currentTab === 'admin' && currentUser?.isAdmin" class="space-y-8">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800">Panel Kawalan Admin</h2>
+          <p class="text-slate-500 text-sm">Urus pendaftaran, pengemaskinian tema kelab dan akaun pengguna.</p>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 max-w-xl space-y-5">
+          <h3 class="font-bold text-slate-800 text-lg border-b pb-2">Tetapan Persatuan & Tema Sistem</h3>
+          
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Nama Persatuan / Kelab</label>
+            <input type="text" x-model="settings.clubName" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Logo Persatuan (Upload)</label>
+            <input type="file" @change="uploadLogo($event)" accept="image/*" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Warna Utama Tema</label>
+              <div class="flex items-center space-x-2">
+                <input type="color" x-model="settings.themeColor" class="w-10 h-10 rounded border cursor-pointer p-0.5">
+                <input type="text" x-model="settings.themeColor" class="flex-1 px-3 py-1.5 border rounded-lg text-sm uppercase">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Warna Latar Belakang Apps</label>
+              <div class="flex items-center space-x-2">
+                <input type="color" x-model="settings.bgColor" class="w-10 h-10 rounded border cursor-pointer p-0.5">
+                <input type="text" x-model="settings.bgColor" class="flex-1 px-3 py-1.5 border rounded-lg text-sm uppercase">
+              </div>
+            </div>
+          </div>
+
+          <button @click="saveSettings()" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="text-white font-semibold px-5 py-2.5 rounded-lg text-sm transition hover:opacity-90 w-full">
+            Simpan Tetapan Tema & Persatuan
+          </button>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 space-y-4">
+          <h3 class="font-bold text-slate-800 text-lg border-b pb-2">Pengesahan Akaun Baharu</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-500 border-b">
+                <tr>
+                  <th class="p-3">Nama</th>
+                  <th class="p-3">E-mel</th>
+                  <th class="p-3">Jawatan</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3 text-right">Tindakan</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y">
+                <template x-for="u in users" :key="u.id">
+                  <tr>
+                    <td class="p-3 font-medium" x-text="u.name"></td>
+                    <td class="p-3 text-slate-600" x-text="u.email"></td>
+                    <td class="p-3 text-slate-600" x-text="u.role"></td>
+                    <td class="p-3">
+                      <span class="px-2 py-0.5 text-xs rounded-full font-bold" :class="u.approved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'" x-text="u.approved ? 'Diluluskan' : 'Menunggu'"></span>
+                    </td>
+                    <td class="p-3 text-right space-x-2">
+                      <template x-if="!u.approved">
+                        <button @click="approveUser(u.id)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-xs font-semibold">Luluskan</button>
+                      </template>
+                      <template x-if="!u.isAdmin">
+                        <button @click="deleteUser(u.id)" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded text-xs font-semibold">Padam Akaun</button>
+                      </template>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- MODAL: TAMBAH REKOD KEWANGAN -->
+  <div x-show="showAddModal" x-cloak class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
+      <button @click="showAddModal = false" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+        <i data-lucide="x"></i>
+      </button>
+
+      <h3 class="text-xl font-bold text-slate-800">Tambah Transaksi Kewangan</h3>
+
+      <form @submit.prevent="addRecord()" class="space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Jenis</label>
+            <select x-model="newRecord.type" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+              <option value="Masuk">Wang Masuk (+)</option>
+              <option value="Keluar">Wang Keluar (-)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Jumlah (RM)</label>
+            <input type="number" step="0.01" x-model="newRecord.amount" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Keterangan / Catatan</label>
+          <input type="text" x-model="newRecord.description" placeholder="Contoh: Yuran Ahli / Pembelian Alat Tulis" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Muat Naik Resit (Gambar/PDF)</label>
+          <input type="file" @change="handleReceiptUpload($event)" accept="image/*" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200">
+        </div>
+
+        <div class="flex justify-end space-x-3 pt-4">
+          <button type="button" @click="showAddModal = false" class="px-4 py-2 border text-slate-600 rounded-lg font-semibold hover:bg-slate-50">Batal</button>
+          <button type="submit" :style="{ backgroundColor: settings.themeColor || '#4f46e5' }" class="px-4 py-2 text-white rounded-lg font-semibold hover:opacity-90">Simpan Rekod</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: PAPARAN RESIT -->
+  <div x-show="showReceiptModal" x-cloak class="fixed inset-0 bg-slate-900/70 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-4 relative flex flex-col items-center">
+      <button @click="showReceiptModal = false" class="absolute top-3 right-3 bg-slate-100 hover:bg-slate-200 rounded-full p-1 text-slate-600">
+        <i data-lucide="x"></i>
+      </button>
+      <h4 class="font-bold text-slate-800 mb-4">Bukti Resit Transaksi</h4>
+      <img :src="activeReceipt" class="max-h-[70vh] object-contain rounded-lg border">
+    </div>
+  </div>
+
+  <!-- LOGIK FIREBASE & ALPINE JS -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { 
+      getAuth, 
+      signInWithEmailAndPassword, 
+      createUserWithEmailAndPassword, 
+      signOut, 
+      onAuthStateChanged,
+      updatePassword,
+      updateEmail
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { 
+      getDatabase, 
+      ref, 
+      set, 
+      get, 
+      child, 
+      push, 
+      remove, 
+      onValue, 
+      update 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // 1. SILA GANTIKAN KONFIGURASI FIREBASE ANDA DI SINI
+    const firebaseConfig = {
+      apiKey: "AIzaSyC9somSqqdNnkE_q9qILwFd-H7T5vsoT6U",
+      authDomain: "finance-database-c473c.firebaseapp.com",
+      databaseURL: "https://finance-database-c473c-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "finance-database-c473c",
+      storageBucket: "finance-database-c473c.firebasestorage.app",
+      messagingSenderId: "328550940854",
+      appId: "1:328550940854:web:a13865dc02e0e15762a617"
+    };
+
+    // Inisialisasi Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    window.financeApp = function() {
+      return {
+        loading: true,
+        loadingMessage: 'Menghubungkan ke Firebase...',
+        currentTab: 'landing',
+        currentUser: null,
+        showAddModal: false,
+        showReceiptModal: false,
+        activeReceipt: null,
+        monthlyChartObj: null,
+        yearlyChartObj: null,
+
+        authMessage: { text: '', type: '' },
+        profileMsg: { text: '', type: '' },
+
+        loginForm: { email: '', password: '' },
+        regForm: { name: '', email: '', role: 'Ahli Biasa', password: '' },
+        profileForm: { email: '', nickname: '', avatar: null, newPassword: '' },
+
+        newRecord: { type: 'Masuk', amount: '', description: '', receipt: null },
+
+        settings: {
+          clubName: 'Persatuan Belia Sepakat',
+          logo: null,
+          themeColor: '#4f46e5',
+          bgColor: '#f1f5f9'
+        },
+
+        users: [],
+        records: [],
+
+        initApp() {
+          // Listen realtime settings
+          onValue(ref(db, 'settings'), (snapshot) => {
+            if (snapshot.exists()) {
+              this.settings = snapshot.val();
+            }
+          });
+
+          // Listen realtime records
+          onValue(ref(db, 'records'), (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.val();
+              this.records = Object.keys(data).map(key => ({ id: key, ...data[key] })).reverse();
+            } else {
+              this.records = [];
+            }
+            if (this.currentTab === 'dashboard') this.renderCharts();
+          });
+
+          // Listen realtime users
+          onValue(ref(db, 'users'), (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.val();
+              this.users = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+            } else {
+              this.users = [];
+            }
+          });
+
+          // Semak Auth State
+          onAuthStateChanged(auth, (user) => {
+            if (user) {
+              get(child(ref(db), `users/${user.uid}`)).then((snapshot) => {
+                if (snapshot.exists()) {
+                  this.currentUser = { uid: user.uid, ...snapshot.val() };
+                  this.populateProfileForm();
+                  this.currentTab = 'dashboard';
+                  this.$nextTick(() => this.renderCharts());
+                }
+                this.loading = false;
+              });
+            } else {
+              this.currentUser = null;
+              this.currentTab = 'landing';
+              this.loading = false;
+            }
+          });
+
+          this.$nextTick(() => lucide.createIcons());
+        },
+
+        downloadPDF() {
+          const element = document.getElementById('pdfPrintArea');
+          element.classList.remove('hidden');
+
+          const opt = {
+            margin:       0.5,
+            filename:     `Penyata_Kewangan_${this.settings.clubName.replace(/\s+/g, '_')}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+          };
+
+          html2pdf().set(opt).from(element).save().then(() => {
+            element.classList.add('hidden');
+          });
+        },
+
+        populateProfileForm() {
+          if (this.currentUser) {
+            this.profileForm.email = this.currentUser.email || '';
+            this.profileForm.nickname = this.currentUser.nickname || '';
+            this.profileForm.avatar = this.currentUser.avatar || null;
+            this.profileForm.newPassword = '';
+          }
+        },
+
+        switchTab(tab) {
+          this.currentTab = tab;
+          if (tab === 'dashboard') {
+            this.$nextTick(() => this.renderCharts());
+          }
+          this.$nextTick(() => lucide.createIcons());
+        },
+
+        get canAddRecord() {
+          if (!this.currentUser) return false;
+          return this.currentUser.isAdmin || this.currentUser.role === 'Bendahari' || this.currentUser.role === 'Naib Bendahari';
+        },
+
+        async handleLogin() {
+          this.loading = true;
+          this.loadingMessage = "Sila tunggu, sedang log masuk...";
+          try {
+            const userCredential = await signInWithEmailAndPassword(auth, this.loginForm.email, this.loginForm.password);
+            const uid = userCredential.user.uid;
+            
+            const snapshot = await get(ref(db, `users/${uid}`));
+            if (snapshot.exists()) {
+              const userData = snapshot.val();
+              if (!userData.approved) {
+                await signOut(auth);
+                this.authMessage = { text: 'Akaun anda masih menunggu kelulusan Admin.', type: 'error' };
+              } else {
+                this.currentUser = { uid, ...userData };
+                this.populateProfileForm();
+                this.switchTab('dashboard');
+                this.authMessage = { text: '', type: '' };
+              }
+            }
+          } catch (error) {
+            this.authMessage = { text: 'E-mel atau kata laluan salah / pengguna tidak wujud.', type: 'error' };
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async handleRegister() {
+          this.loading = true;
+          this.loadingMessage = "Memproses pendaftaran pangkalan data...";
+          try {
+            const userCredential = await createUserWithEmailAndPassword(auth, this.regForm.email, this.regForm.password);
+            const uid = userCredential.user.uid;
+
+            // Pengguna pertama didaftarkan akan secara automatik menjadi ADMIN
+            const isFirstUser = this.users.length === 0;
+
+            const newUser = {
+              name: this.regForm.name,
+              nickname: '',
+              avatar: null,
+              email: this.regForm.email,
+              role: this.regForm.role,
+              isAdmin: isFirstUser,
+              approved: isFirstUser
+            };
+
+            await set(ref(db, `users/${uid}`), newUser);
+            await signOut(auth); // Signout supaya menunggu kelulusan
+            
+            this.authMessage = { text: 'Pendaftaran berjaya! Sila tunggu kelulusan Admin.', type: 'success' };
+            this.regForm = { name: '', email: '', role: 'Ahli Biasa', password: '' };
+          } catch (error) {
+            this.authMessage = { text: 'Gagal mendaftar: ' + error.message, type: 'error' };
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async logout() {
+          await signOut(auth);
+          this.currentUser = null;
+          this.currentTab = 'landing';
+          this.$nextTick(() => lucide.createIcons());
+        },
+
+        uploadAvatar(e) {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              this.profileForm.avatar = event.target.result;
+            };
+            reader.readAsDataURL(file);
+          }
+        },
+
+        async updateProfile() {
+          this.loading = true;
+          this.loadingMessage = "Mengemaskini profil dalam Firebase...";
+          try {
+            const uid = this.currentUser.uid;
+            const updates = {
+              nickname: this.profileForm.nickname,
+              avatar: this.profileForm.avatar || null,
+              email: this.profileForm.email
+            };
+
+            if (auth.currentUser.email !== this.profileForm.email) {
+              await updateEmail(auth.currentUser, this.profileForm.email);
+            }
+
+            if (this.profileForm.newPassword) {
+              await updatePassword(auth.currentUser, this.profileForm.newPassword);
+            }
+
+            await update(ref(db, `users/${uid}`), updates);
+            this.currentUser = { ...this.currentUser, ...updates };
+            this.profileMsg = { text: 'Profil berjaya dikemaskini!', type: 'success' };
+            this.profileForm.newPassword = '';
+          } catch (error) {
+            this.profileMsg = { text: 'Gagal kemaskini: ' + error.message, type: 'error' };
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async addRecord() {
+          this.loading = true;
+          this.loadingMessage = "Menyimpan rekod ke pangkalan data...";
+          try {
+            const now = new Date();
+            const dateTimeStr = now.toISOString().slice(0, 10) + ' ' + now.toTimeString().slice(0, 5);
+            const displayName = this.currentUser.nickname ? `${this.currentUser.nickname} (${this.currentUser.name})` : this.currentUser.name;
+
+            const record = {
+              dateTime: dateTimeStr,
+              type: this.newRecord.type,
+              amount: parseFloat(this.newRecord.amount),
+              description: this.newRecord.description,
+              uploadedBy: displayName,
+              uploaderRole: this.currentUser.role,
+              receipt: this.newRecord.receipt || null
+            };
+
+            const newRecordRef = push(ref(db, 'records'));
+            await set(newRecordRef, record);
+
+            this.showAddModal = false;
+            this.newRecord = { type: 'Masuk', amount: '', description: '', receipt: null };
+          } catch (error) {
+            alert("Gagal menambah rekod: " + error.message);
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        handleReceiptUpload(e) {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              this.newRecord.receipt = event.target.result;
+            };
+            reader.readAsDataURL(file);
+          }
+        },
+
+        viewReceipt(receiptData) {
+          this.activeReceipt = receiptData;
+          this.showReceiptModal = true;
+        },
+
+        async deleteRecord(id) {
+          if (confirm('Adakah anda pasti ingin memadam rekod ini dari Firebase?')) {
+            await remove(ref(db, `records/${id}`));
+          }
+        },
+
+        async approveUser(id) {
+          await update(ref(db, `users/${id}`), { approved: true });
+        },
+
+        async deleteUser(id) {
+          if (confirm('Adakah anda pasti ingin memadam akaun pengguna ini?')) {
+            await remove(ref(db, `users/${id}`));
+          }
+        },
+
+        uploadLogo(e) {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              this.settings.logo = event.target.result;
+            };
+            reader.readAsDataURL(file);
+          }
+        },
+
+        async saveSettings() {
+          this.loading = true;
+          this.loadingMessage = "Menyimpan tetapan ke Firebase...";
+          try {
+            await set(ref(db, 'settings'), this.settings);
+            alert('Tetapan tema dan persatuan telah berjaya disimpan ke Firebase!');
+          } catch (error) {
+            alert('Gagal menyimpan tetapan: ' + error.message);
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        get totalIncome() {
+          return this.records.filter(r => r.type === 'Masuk').reduce((acc, r) => acc + (parseFloat(r.amount) || 0), 0);
+        },
+
+        get totalExpense() {
+          return this.records.filter(r => r.type === 'Keluar').reduce((acc, r) => acc + (parseFloat(r.amount) || 0), 0);
+        },
+
+        get totalBalance() {
+          return this.totalIncome - this.totalExpense;
+        },
+
+        formatCurrency(amount) {
+          return 'RM ' + Number(amount || 0).toLocaleString('ms-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        },
+
+        renderCharts() {
+          const months = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis'];
+          const monthlyIncome = new Array(12).fill(0);
+          const monthlyExpense = new Array(12).fill(0);
+
+          const currentYear = new Date().getFullYear();
+
+          this.records.forEach(r => {
+            const date = new Date(r.dateTime.replace(' ', 'T'));
+            if (date.getFullYear() === currentYear) {
+              const m = date.getMonth();
+              if (r.type === 'Masuk') monthlyIncome[m] += parseFloat(r.amount) || 0;
+              if (r.type === 'Keluar') monthlyExpense[m] += parseFloat(r.amount) || 0;
+            }
+          });
+
+          const themePrimary = this.settings.themeColor || '#4f46e5';
+
+          const ctx1 = document.getElementById('monthlyChart')?.getContext('2d');
+          if (ctx1) {
+            if (this.monthlyChartObj) this.monthlyChartObj.destroy();
+            this.monthlyChartObj = new Chart(ctx1, {
+              type: 'line',
+              data: {
+                labels: months,
+                datasets: [
+                  { label: 'Wang Masuk', data: monthlyIncome, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3 },
+                  { label: 'Wang Keluar', data: monthlyExpense, borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.1)', fill: true, tension: 0.3 }
+                ]
+              },
+              options: { responsive: true, maintainAspectRatio: false }
+            });
+          }
+
+          const yearsMap = {};
+          this.records.forEach(r => {
+            const y = new Date(r.dateTime.replace(' ', 'T')).getFullYear();
+            if (!yearsMap[y]) yearsMap[y] = { income: 0, expense: 0 };
+            if (r.type === 'Masuk') yearsMap[y].income += parseFloat(r.amount) || 0;
+            if (r.type === 'Keluar') yearsMap[y].expense += parseFloat(r.amount) || 0;
+          });
+
+          const yearLabels = Object.keys(yearsMap).sort();
+          const yearIncomes = yearLabels.map(y => yearsMap[y].income);
+          const yearExpenses = yearLabels.map(y => yearsMap[y].expense);
+
+          const ctx2 = document.getElementById('yearlyChart')?.getContext('2d');
+          if (ctx2) {
+            if (this.yearlyChartObj) this.yearlyChartObj.destroy();
+            this.yearlyChartObj = new Chart(ctx2, {
+              type: 'bar',
+              data: {
+                labels: yearLabels.length ? yearLabels : [currentYear.toString()],
+                datasets: [
+                  { label: 'Wang Masuk', data: yearIncomes.length ? yearIncomes : [0], backgroundColor: themePrimary },
+                  { label: 'Wang Keluar', data: yearExpenses.length ? yearExpenses : [0], backgroundColor: '#f43f5e' }
+                ]
+              },
+              options: { responsive: true, maintainAspectRatio: false }
+            });
+          }
+        }
+      };
+    }
+  </script>
+</body>
+</html>
